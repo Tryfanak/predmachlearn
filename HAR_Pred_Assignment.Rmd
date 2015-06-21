@@ -1,0 +1,144 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Tryfanak"
+date: "June 21, 2015"
+output: html_document
+---
+
+##Summary
+This report describes the steps to create a model to predict how well a subject performed a specific weight lifting exercise, based on readings from a set of on-body sensors. Data was provided which linked historic sensor readings to exercises which were performed correctly, or in one of four incorrect ways. The task was to use sensor readings from additional  to predict whether those exercises were being performed correctly, or in one of the incorrect ways.
+
+The report describes: how the data was prepared for analyis; the partioning strategy to create training, test and validation sets; how a set of features was selected for the model; the choice of algorithm; calculation of parameters; and finally the estimation of out-of-sample errors.
+
+The model selected is a random forest, based on a reduced subset of 7 variables. This relatively simple model has an estimated out of sample error rate of 3%. 
+
+The data for this assignment can be found at http://groupware.les.inf.puc-rio.br/har, and comes originally from this paper  
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. **Qualitative Activity Recognition of Weight Lifting Exercises.** Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+
+##Data Preparation
+```{r,echo=FALSE,message=FALSE}
+library(plyr);library(dplyr);library(tidyr);library(caret);library(rattle)
+```  
+The training data is loaded from the supplied CSV file, treating blanks and certain Excel artifacts as NA.
+```{r}
+dat <- read.csv("pml-training.csv", header=TRUE, na.strings = c("NA","#DIV/0!"))
+```
+
+Upon inspection, the data contains summary rows which (from the paper) refer to time window calculations which are beyond the scope of this project. These rows were removed entirely.
+```{r}
+dat1 <- filter( dat, new_window == "no")
+```
+Once the summary rows were removed, a large number of data columns contained no values except NA - these columns were dropped.
+```{r}
+dat2 <- dat1[, as.vector(colSums(!is.na(dat1))) > 0]
+```
+The remainder of the data was fully and cleanly populated, and no imputation was required to create a useable dataset.
+
+##Data Exploration
+Inspection of the data showed several ways in which the complexity of the data set could be reduced:  
+*Columns related to the identity of the user were not relevant  
+*Columns related to the time of the reading could not used for this specific model  
+These columns were dropped from the data set
+```{r}
+dat3 <- select(dat2, -X, -user_name, -raw_timestamp_part_1,
+                 -raw_timestamp_part_2, -cvtd_timestamp, -new_window, -num_window)
+```
+
+Inspection of the columns for each sensor showed that certain columns were highly correlated, and were candidates for feature reduction later. The belt sensor showed this most. For example, these are the correlations with the roll_belt column...
+```{r,echo=FALSE}
+belt <- select(dat3, contains("_belt"))
+cor(belt)[,1]
+```
+
+Two data issues of concern were beyond the scope of this project to resolve, but would need to be addressed for a professional treatment  
+
+* The original readings were collected as a stream over time, and reflect the motion of the person performing the exercise. A proper analysis should address them as a sequence, with a moving time window and a class for the whole window, rather than treating each row as a separate case.  
+* The belt readings are clearly inconsistent between users. The differences are so large that it appears that three of the users had positioned this sensor completely differently form the other half. There may be a data transformation which could correct this, but for the assignment it was left to the model to resolve the issue. (This is reasonable for a classification algorithm, but would not work for regression).
+
+```{r,echo=FALSE}
+qplot(roll_belt,yaw_belt,colour=user_name,data=dat2)
+```
+
+##Partitioning the Data
+Since the dataset provided was large enough to support this, it was partitioned into training (80%) and validation (20%) sets. The validation set was set aside, and not touched again until it was used to estimate out of sample errors for the final model. The training set was used in its entirety for feature selection, and then further subdivided into training/test sets to evaluate different models.
+```{r}
+set.seed(223)
+trainIndex <- createDataPartition(dat3$classe, p = 0.8,list=FALSE)
+training <- dat3[trainIndex,]; validation <-dat3[-trainIndex,]
+dim(training);dim(validation)
+```
+
+##Feature Selection
+The training set was large (~15300 rows and 53 columns), which made it difficult to run multiple models. To speed up feature selection, models were run initially on about 10% of the data at a time, changing the seed to create different data sets for each model. After each model run, the varImp function was used to evaluate the importance of each feature. The model types used were CART, random forest and boosting with trees (GBM). These model types were selected as being the best for classification (rather than regression).
+
+It was clear quickly that the most important features were stable between different model types and input data sets, and also that some features were of very low importance. (For example, no model ranked data from the arm sensor in its top variables). Features were pruned from the data set where they were either of low importance (0-3%), or where they were highly correlatd with other features 
+
+The pruning process was iterative, increasing the size of the input dataset as the features were reduced, and comparing the accuracy to ensure that removing a feature did not degrade the model significantly. The feature set was eventually reduced to just 7 variables:  
+ROLL_FOREARM  
+PITCH_FOREARM  
+ROLL_BELT  
+PITCH_BELT  
+MAGNET_DUMBBELL_X  
+MAGNET_DUMBBELL_Y  
+MAGNET_DUMBBELL_Z  
+This is clearly much reduced from the original 59 features, but still produced models that performed well on 10-20% of the training set.
+
+```{r,echo=FALSE}
+training <- select( training, roll_forearm, pitch_forearm, roll_belt, pitch_belt,
+                    magnet_dumbbell_x, magnet_dumbbell_y, magnet_dumbbell_z, classe)
+```
+
+Once the features had been selected, the training set was broken out into a reduced training set (60% of the original data) and a test set (20% of the original data).
+```{r,echo=FALSE}
+set.seed(3)
+trainIndex2 <- createDataPartition(training$classe, p = 0.75,list=FALSE)
+train <- training[trainIndex2,];test <- training[-trainIndex2,]
+```
+
+```{r}
+dim(train);dim(test)
+```
+
+##Model Selection and Fitting
+Boosted tree and random forest models were considered. Although classification trees were also used during feature selection, as an aid to understand how the features were used, they were not sophisticated enough for the final model. 
+
+The boosted tree model was only run in its default form. In a production environment it would obviously be better to adjust the parameters to achieve better accuracy, but the time to run the larger models made this difficult to achieve.
+```{r,message=FALSE}
+set.seed(34987)
+modFitGBM <- train(classe~., method="gbm",data=train,verbose=FALSE)
+```
+
+The random forest model was also run using defaults. Since this was done with the caret package version of random forest, this step including optimization and tuning performed by the package.
+```{r,message=FALSE}
+set.seed(1977)
+modFitRF <- train(classe~., method="rf",data=train)
+```
+
+In order to select the best model, the estimated out of sample errors were compared. These were calculated by running predictions for the testing set, and calculating  confusion matrices for each model. In addition, the random forest model calculated its own OOB estimate of error rate, which agreed well with the independent estimate. Based on these statistics (below) the random forest model was selected, since it has a lower estimated out of sample error rate on the test set (3%, compared to 9% for the boosted tree model).
+
+####Confusion Matrix for Boosted Tree on Test Set
+```{r,echo=FALSE}
+confusionMatrix(test$classe, predict(modFitGBM,test))
+```
+
+####Confusion Matrix for Random Forest on Test Set
+```{r,echo=FALSE}
+confusionMatrix(test$classe, predict(modFitRF,test))
+```
+
+####Caret Statistics for Random Forest
+```{r,echo=FALSE}
+print(modFitRF$finalModel)
+```
+
+##Estimating Out of Sample Errors
+The final step is to estimate the out of sample errors for the selected model, using the untouched validation set to compare predicted values with actuals.
+```{r}
+confusionMatrix(validation$classe, predict(modFitRF,validation))
+```
+
+This gives an estimated out of sample error of about 3% (i.e. 100% - an accuracy of 97%). This is entirely conistent with the 2.9% OOB error rate calculated by the caret random forest algorithm.
+
+##Conclusion
+It is possible to determine the quality of an exercise using on-body sensors and a limited set of variables with about 97% accuracy (an error rate of 3%), despite the data quality problems and logic problems noted earlier. The hardest improper cases to identify are C and D, which both represent an inadequate range of motion during the course of the exercise - this makes sense in a model which does not use make use of the time element.
