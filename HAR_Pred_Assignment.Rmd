@@ -1,7 +1,7 @@
 ---
 title: "Practical Machine Learning Assignment"
 author: "Tryfanak"
-date: "July 26, 2015"
+date: "August 23, 2015"
 output: html_document
 ---
 
@@ -36,8 +36,8 @@ The remainder of the data was fully and cleanly populated, and no imputation was
 
 ##Data Exploration
 Inspection of the data showed several ways in which the complexity of the data set could be reduced:  
-*Columns related to the identity of the user were not relevant, since this would not be useful for new users  
-*Columns related to the time of the reading could not used for this specific model  
+- Columns related to the identity of the user were not relevant, since this would not be useful for new users  
+- Columns related to the time of the reading could not used for this specific model  
 These columns were dropped from the data set
 ```{r}
 dat3 <- select(dat2, -X, -user_name, -raw_timestamp_part_1,
@@ -61,18 +61,10 @@ Two data issues of concern were beyond the scope of this project to resolve, but
 qplot(roll_belt,pitch_belt,colour=user_name,data=dat2)
 ```
 
-In exploratory plots, several combinations of variables showed promise as predictors, because they created separation between the different ways that the exercise could be performed.
-
-```{r,echo=FALSE}
-qplot(roll_belt,yaw_belt,colour=classe,data=dat2)
-```
+In exploratory plots, several combinations of variables showed promise as predictors, because they created separation between the different ways that the exercise could be performed. This plot shows the pattern for the forearm sensors. Examples for belt and dumbbell sensors are included in the Appendix A.  
 
 ```{r,echo=FALSE}
 qplot(roll_forearm, pitch_forearm,colour=classe,data=dat2)
-```
-
-```{r,echo=FALSE}
-qplot(magnet_dumbbell_y,magnet_dumbbell_z, colour=classe,data=dat2)
 ```
 
 ##Partitioning the Data
@@ -156,7 +148,7 @@ supertrain <- select( supertrain, roll_forearm, pitch_forearm, roll_belt, pitch_
 ```
 
 ##Model Selection
-The models considered in this step were random forest, boosted trees (GBM) and linear discriminant analysis (lda). Although classification trees were used during feature selection, the performance was poor, and they were not retained at this stage. Each model was trained using the full training set (60% of the data), the eight predictors listed above, and 5-fold cross-validation. The accuracy of each model was estimated by comparing the predicted classes for the test set with the actual values, using the confusion matrix. The run time for each model was also calculated. (The code used for each model can be found in the Appendix).
+The models considered in this step were random forest, boosted trees (GBM) and linear discriminant analysis (lda). Although classification trees were used during feature selection, the performance was poor, and they were not retained at this stage. Each model was trained using the full training set (60% of the data), the eight predictors listed above, and 5-fold cross-validation. The accuracy of each model was estimated by comparing the predicted classes for the test set with the actual values, using the confusion matrix. The run time for each model was also calculated. (The code used for each model can be found in the Appendix B).
 
 ####Option 1. Random Forest Model
 ```{r fitRF,message=FALSE,echo=FALSE}
@@ -166,14 +158,6 @@ set.seed(203)
 modFitRF <- train(classe~., method="rf",data=train, trControl=controla)
 round(Sys.time() - start1,2)
 confusionMatrix(test$classe, predict(modFitRF,test))
-```
-
-```{r plotRF,message=FALSE,echo=FALSE}
-# Code for plotting errors for random forest model
-plot(modFitRF$finalModel,main="Error Rates for Each Classe")
-modFitRF$finalModel.legend <- if (is.null(modFitRF$finalModel$test$err.rate)) 
-{colnames(modFitRF$finalModel$err.rate)} else {colnames(modFitRF$finalModel$test$err.rate)}
-legend("top", cex =0.7, legend=modFitRF$finalModel.legend, lty=c(1,2,3), col=c(1,2,3), horiz=T)
 ```
 
 
@@ -190,11 +174,6 @@ modFitGBM <- train(classe~., method="gbm",data=train,
                    tuneGrid = gbmGrid,trControl=controla, verbose=FALSE)
 round(Sys.time() - start1,2)
 confusionMatrix(test$classe, predict(modFitGBM,test))
-```
-
-```{r plotGBM,message=FALSE,echo=FALSE}
-# Code for plotting accuracy for boosted tree model
-plot(modFitGBM)
 ```
 
 
@@ -227,6 +206,7 @@ The final random forest model was built using
 * the eight predictors listed above  
 * 5-fold cross-validation in the caret package
 ```{r}
+
 controla <- trainControl(method = "cv", number=5 )
 start1 <- Sys.time()
 set.seed(2549)
@@ -240,6 +220,17 @@ print(modFinal)
 print(modFinal$finalModel)
 ```
 Note the estimated error rate of 1.3% for out of sample errors, which caret has produced using cross-validation.
+
+The majority of these errors (mis-classifications) come from classes 'B' and 'C'.
+
+```{r plotRFinal,message=FALSE,echo=FALSE}
+# Code for plotting errors for final random forest model
+plot(modFinal$finalModel,main="Error Rates for Each Classe")
+modFinal$finalModel.legend <- if (is.null(modFinal$finalModel$test$err.rate)) 
+{colnames(modFinal$finalModel$err.rate)} else {colnames(modFinal$finalModel$test$err.rate)}
+legend("top", cex =0.7, legend=modFinal$finalModel.legend, lty=c(1,2,3,4,5), col=c(1,2,3,4,5), horiz=T)
+```
+
 
 ##Estimating Out of Sample Errors for the Final Model
 The final step is to estimate the out of sample errors for the final model, using the untouched validation set to compare predicted values with actuals. (This is a second definition of cross-validation)
@@ -262,7 +253,34 @@ predict(modFinal,pmltest)
 ##Conclusion
 It is possible to determine the quality of an exercise using on-body sensors and a limited set of variables with 99% accuracy (an estimated out-of-sample error rate of 1.1%), despite the data quality problems and logic problems noted earlier. The final model was a random forest, using 8 variables, and 80% of the data.
 
-#APPENDIX
+#APPENDIX A - ADDITIONAL FIGURES
+
+####Additional Plots Showing Relationships Between Predictors and Classe
+```{r,echo=FALSE}
+qplot(roll_belt,yaw_belt,colour=classe,data=dat2)
+```
+
+```{r,echo=FALSE}
+qplot(magnet_dumbbell_y,magnet_dumbbell_z, colour=classe,data=dat2)
+```
+
+####Accuracies for Boosted Tree Model during Model Selection
+```{r plotGBM,message=FALSE,echo=FALSE}
+# Code for plotting accuracy for boosted tree model
+plot(modFitGBM)
+```
+
+####Error Rates for Random Forest Model during Model Selection
+```{r plotRF,message=FALSE,echo=FALSE}
+# Code for plotting errors for random forest model
+plot(modFitRF$finalModel,main="Error Rates for Each Classe")
+modFitRF$finalModel.legend <- if (is.null(modFitRF$finalModel$test$err.rate)) 
+{colnames(modFitRF$finalModel$err.rate)} else {colnames(modFitRF$finalModel$test$err.rate)}
+legend("top", cex =0.7, legend=modFitRF$finalModel.legend, lty=c(1,2,3,4,5), col=c(1,2,3,4,5), horiz=T)
+```
+
+
+#APPENDIX B - SUPPORTING CODE 
 ```{r varImp, eval=FALSE}
 ```
 
@@ -281,7 +299,8 @@ It is possible to determine the quality of an exercise using on-body sensors and
 ```{r fitLDA, eval=FALSE}
 ```
 
-```{r CM, eval=FALSE}
+```{r plotRFinal, eval=FALSE}
 ```
 
-
+```{r CM, eval=FALSE}
+```
